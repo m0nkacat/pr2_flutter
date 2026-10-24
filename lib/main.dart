@@ -1,7 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'cubit/notes_cubit.dart';
+import 'cubit/theme_cubit.dart';
+import 'cubit/theme_state.dart';
 
 void main() {
-  runApp(const NotesApp());
+  // Оба Cubit создаются один раз и доступны всему приложению
+  runApp(
+    MultiBlocProvider(
+      providers: [
+        BlocProvider(create: (_) => ThemeCubit()),
+        BlocProvider(create: (_) => NotesCubit()),
+      ],
+      child: const NotesApp(),
+    ),
+  );
 }
 
 class NotesApp extends StatelessWidget {
@@ -9,14 +23,31 @@ class NotesApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Заметки',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF5362FF),
-      ),
-      home: const NotesScreen(),
+    // Приложение перестраивается при каждом новом состоянии темы
+    return BlocBuilder<ThemeCubit, ThemeState>(
+      builder: (context, themeState) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Заметки',
+          theme: ThemeData(
+            useMaterial3: true,
+            colorSchemeSeed: const Color(0xFF5362FF),
+          ),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorSchemeSeed: const Color(0xFF5362FF),
+            brightness: Brightness.dark,
+          ),
+          themeMode: themeState.isDark ? ThemeMode.dark : ThemeMode.light,
+          // Масштаб шрифта для всего приложения
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(themeState.fontScale)),
+            child: child!,
+          ),
+          home: const NotesScreen(),
+        );
+      },
     );
   }
 }
@@ -30,35 +61,27 @@ class NotesScreen extends StatefulWidget {
 
 class _NotesScreenState extends State<NotesScreen> {
   final TextEditingController _controller = TextEditingController();
-  final List<String> _notes = [];
 
   // Добавление новой заметки
   void _saveNote() {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _notes.add(text);
-      _controller.clear();
-    });
+    context.read<NotesCubit>().addNote(_controller.text);
+    _controller.clear();
   }
 
   // Удаление заметки по индексу
   void _deleteNote(int index) {
-    setState(() {
-      _notes.removeAt(index);
-    });
+    context.read<NotesCubit>().deleteNote(index);
   }
 
   // Редактирование заметки в диалоговом окне
   Future<void> _editNote(int index) async {
+    final cubit = context.read<NotesCubit>();
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => EditNoteDialog(initialText: _notes[index]),
+      builder: (context) => EditNoteDialog(initialText: cubit.state[index]),
     );
-    if (result != null && result.isNotEmpty) {
-      setState(() {
-        _notes[index] = result;
-      });
+    if (result != null) {
+      cubit.editNote(index, result);
     }
   }
 
@@ -74,6 +97,27 @@ class _NotesScreenState extends State<NotesScreen> {
       appBar: AppBar(
         title: const Text('Заметки'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.text_decrease),
+            tooltip: 'Уменьшить шрифт',
+            onPressed: () => context.read<ThemeCubit>().decreaseFont(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.text_increase),
+            tooltip: 'Увеличить шрифт',
+            onPressed: () => context.read<ThemeCubit>().increaseFont(),
+          ),
+          IconButton(
+            icon: Icon(
+              context.watch<ThemeCubit>().state.isDark
+                  ? Icons.light_mode
+                  : Icons.dark_mode,
+            ),
+            tooltip: 'Сменить тему',
+            onPressed: () => context.read<ThemeCubit>().toggleTheme(),
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -100,35 +144,37 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Список заметок
+            // Список заметок перестраивается при каждом новом состоянии NotesCubit
             Expanded(
-              child: _notes.isEmpty
-                  ? const Center(child: Text('Заметок пока нет'))
-                  : ListView.builder(
-                      itemCount: _notes.length,
-                      itemBuilder: (context, index) {
-                        return Card(
-                          child: ListTile(
-                            title: Text(_notes[index]),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  tooltip: 'Редактировать',
-                                  onPressed: () => _editNote(index),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  tooltip: 'Удалить',
-                                  onPressed: () => _deleteNote(index),
-                                ),
-                              ],
+              child: BlocBuilder<NotesCubit, List<String>>(
+                builder: (context, notes) => notes.isEmpty
+                    ? const Center(child: Text('Заметок пока нет'))
+                    : ListView.builder(
+                        itemCount: notes.length,
+                        itemBuilder: (context, index) {
+                          return Card(
+                            child: ListTile(
+                              title: Text(notes[index]),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit),
+                                    tooltip: 'Редактировать',
+                                    onPressed: () => _editNote(index),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete),
+                                    tooltip: 'Удалить',
+                                    onPressed: () => _deleteNote(index),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
+              ),
             ),
           ],
         ),
@@ -148,8 +194,9 @@ class EditNoteDialog extends StatefulWidget {
 }
 
 class _EditNoteDialogState extends State<EditNoteDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialText);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialText,
+  );
 
   @override
   void dispose() {

@@ -1,11 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pr2/cubit/notes_cubit.dart';
+import 'package:pr2/cubit/theme_cubit.dart';
 import 'package:pr2/main.dart';
 
 void main() {
   testWidgets('Добавление, редактирование и удаление заметки', (tester) async {
-    await tester.pumpWidget(const NotesApp());
+    await tester.pumpWidget(
+      MultiBlocProvider(
+        providers: [
+          BlocProvider(create: (_) => ThemeCubit()),
+          BlocProvider(create: (_) => NotesCubit()),
+        ],
+        child: const NotesApp(),
+      ),
+    );
     expect(find.text('Заметок пока нет'), findsOneWidget);
 
     // Добавление
